@@ -10,8 +10,8 @@ import matplotlib.pyplot as plt
 import os
 import LFPy
 
-# np.random.seed(12478)
-np.random.seed(125162354)
+np.random.seed(12478)
+# np.random.seed(125162354)
 
 import plotting_helpers as phlp
 from hybridLFPy import CachedNetwork
@@ -172,10 +172,12 @@ def fig_intro(params, fraction=0.05, rasterized=False):
     # ax_top_EEG.set_ylabel("$\mu$V", labelpad=-3)
     summed_top_EEG = np.load(join(params.savefolder, "summed_EEG.npy"))
 
-    simple_EEG = np.load(join(params.savefolder, "simple_EEG.npy"))
+    simple_EEG_single_pop = np.load(join(params.savefolder, "simple_EEG_single_pop.npy"))
+    simple_EEG_pops_with_pos = np.load(join(params.savefolder, "simple_EEG_pops_with_pos.npy"))
+
     tvec = np.arange(len(summed_top_EEG)) * dt
 
-    sub_pops = ["L5I", "L4I", "L6I", "L23I", "L5E", "L4E", "L6E", "L23E"]
+    # sub_pops = ["L5I", "L4I", "L6I", "L23I", "L5E", "L4E", "L6E", "L23E"]
     pops = np.unique(next(zip(*params.mapping_Yy)))
     colors = phlp.get_colors(np.unique(pops).size)
     for p_idx, pop in enumerate(pops):
@@ -189,22 +191,26 @@ def fig_intro(params, fraction=0.05, rasterized=False):
     ax_top_EEG.text(879, -0.2, "0.2 $\mu$V", va="center")
     ax_top_EEG.text(885, -0.32, "10 ms", va="top", ha="center")
 
-    y1 = summed_top_EEG - np.average(summed_top_EEG)
-    y2 = simple_EEG - np.average(simple_EEG)
+    y0 = summed_top_EEG - np.average(summed_top_EEG)
+    y1 = simple_EEG_single_pop - np.average(simple_EEG_single_pop)
+    y2 = simple_EEG_pops_with_pos - np.average(simple_EEG_pops_with_pos)
 
-    l3, = ax_top_EEG.plot(tvec, y1-y2, lw=1.5, c='orange', ls='-')
-    l1, = ax_top_EEG.plot(tvec, summed_top_EEG - np.average(summed_top_EEG), lw=1.5, c='k')
-    l2, = ax_top_EEG.plot(tvec, simple_EEG - np.average(simple_EEG), lw=1.5, c='r', ls='--')
+    l3, = ax_top_EEG.plot(tvec, y0-y2, lw=1.5, c='orange', ls='-')
+    l1, = ax_top_EEG.plot(tvec, y0, lw=1.5, c='k')
+    l2, = ax_top_EEG.plot(tvec, y2, lw=1.5, c='r', ls='--')
 
     t0_plot_idx = np.argmin(np.abs(tvec - 875))
     t1_plot_idx = np.argmin(np.abs(tvec - 950))
-    max_sig_idx = np.argmax(np.abs(y1[t0_plot_idx:])) + t0_plot_idx
+    max_sig_idx = np.argmax(np.abs(y0[t0_plot_idx:])) + t0_plot_idx
 
-    EEG_error_at_max = np.abs(y1[max_sig_idx] - y2[max_sig_idx]) / np.abs(y1[max_sig_idx])
+    EEG_error_at_max_1 = np.abs(y0[max_sig_idx] - y1[max_sig_idx]) / np.abs(y0[max_sig_idx])
+    EEG_error_at_max_2 = np.abs(y0[max_sig_idx] - y2[max_sig_idx]) / np.abs(y0[max_sig_idx])
 
-    max_EEG_error = np.max(np.abs(y1[t0_plot_idx:t1_plot_idx] - y2[t0_plot_idx:t1_plot_idx]) / np.max(np.abs(y1[t0_plot_idx:t1_plot_idx])))
+    max_EEG_error_1 = np.max(np.abs(y0[t0_plot_idx:t1_plot_idx] - y1[t0_plot_idx:t1_plot_idx]) / np.max(np.abs(y0[t0_plot_idx:t1_plot_idx])))
+    max_EEG_error_2 = np.max(np.abs(y0[t0_plot_idx:t1_plot_idx] - y2[t0_plot_idx:t1_plot_idx]) / np.max(np.abs(y0[t0_plot_idx:t1_plot_idx])))
 
-    print("Error at sig max (t={:1.3f} ms): {:1.4f}. Max relative error: {:1.4f}".format(tvec[max_sig_idx], EEG_error_at_max, max_EEG_error))
+    print("Error with single pop at sig max (t={:1.3f} ms): {:1.4f}. Max relative error: {:1.4f}".format(tvec[max_sig_idx], EEG_error_at_max_1, max_EEG_error_1))
+    print("Error with multipop at sig max (t={:1.3f} ms): {:1.4f}. Max relative error: {:1.4f}".format(tvec[max_sig_idx], EEG_error_at_max_2, max_EEG_error_2))
     ax_top_EEG.legend([l1, l2, l3], ["full sum", "pop. dipole", "difference"], frameon=False, loc=(0.5, 0.1))
     # phlp.remove_axis_junk(ax_top_EEG)
     ax_top_EEG.axvline(900, c='gray', ls='--')
@@ -212,8 +218,8 @@ def fig_intro(params, fraction=0.05, rasterized=False):
 
     ax_top_EEG.set_xlim(T)
 
-    fig.savefig(join('hybrid_with_EEG_re_reseed.png'), dpi=300)
-    fig.savefig(join('hybrid_with_EEG_re_reseed.pdf'), dpi=300)
+    fig.savefig(join('hybrid_with_EEG.png'), dpi=300)
+    fig.savefig(join('hybrid_with_EEG.pdf'), dpi=300)
 
 
 def plot_foursphere_to_ax(ax):

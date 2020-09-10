@@ -46,14 +46,18 @@ pop_clrs_list = {pop_name: pop_clrs(pidx) for pidx, pop_name in
                  enumerate(sub_pop_groups_dict.keys())}
 
 num_tsteps = 1201 #16801
+dt = 1
+tvec = np.arange(num_tsteps) * dt
 summed_eeg = np.zeros(num_tsteps)
 summed_pop_cdm = np.zeros((num_tsteps, 3))
-pop_rmid = np.array([0, 0, radii[0] - 1000])
+
+pop_avrg_pos = {}
+pop_sum_cdm = {}
 
 for pop_name, subpops in sub_pop_groups_dict.items():
     pop_eeg = np.zeros(num_tsteps)
     for subpop in subpops:
-        summed_cdm = np.zeros((num_tsteps, 3))
+
         print(subpop)
         cdm_folder = join(sim_folder, "cdm", "{}".format(subpop))
         files = os.listdir(cdm_folder)
@@ -67,43 +71,83 @@ for pop_name, subpops in sub_pop_groups_dict.items():
         if not len(files) == len(positions):
             raise RuntimeError("Missmatch!")
 
+        summed_cdm = np.zeros((num_tsteps, 3))
         for idx, f in enumerate(files):
             cdm = np.load(join(cdm_folder, f))
-
             r_mid = positions[idx]
-            #print(r_mid)
-            eeg_top = np.array(four_sphere_top.calc_potential(cdm, r_mid)) * 1e3  # from mV to uV
+            eeg_top = np.array(four_sphere_top.calc_potential(cdm, r_mid))[0] * 1e3  # from mV to uV
             if np.isnan(eeg_top).any():
                 print(np.isnan(cdm).any(), pop_name, subpop, idx, f)
                 sys.exit()
             summed_cdm += cdm
-            summed_eeg += eeg_top[0, :]
-            pop_eeg += eeg_top[0, :]
-            # if idx < 100:
-            #     ax1.plot(eeg_top[0, :], c='gray', lw=0.5)
+            summed_eeg += eeg_top
+            pop_eeg += eeg_top
 
         if subpop in dominating_pops:
             print("Adding {} to summed cdm".format(subpop))
             summed_pop_cdm[:, 2] += summed_cdm[:, 2]
+            pop_avrg_pos[subpop] = np.average(positions, axis=0)
+            pop_sum_cdm[subpop] = np.zeros(summed_cdm.shape)
+            pop_sum_cdm[subpop][:, 2] = summed_cdm[:, 2]
+            print(pop_avrg_pos[subpop])
+
     print(np.average(positions, axis=0))
-    eeg_pop_dipole = np.array(four_sphere_top.calc_potential(summed_cdm,
-                     np.average(positions, axis=0))) * 1e3  # from mV to uV
+    # eeg_pop_dipole = np.array(four_sphere_top.calc_potential(summed_cdm,
+    #                  np.average(positions, axis=0))) * 1e3  # from mV to uV
     # summed_eeg += eeg_pop_dipole[0, :]
     np.save(join(sim_folder, "EEG_{}.npy".format(pop_name)), pop_eeg)
     ax1.plot(pop_eeg - np.average(pop_eeg),
              c=pop_clrs_list[pop_name], lw=2., label=pop_name)
 
-simple_eeg = np.array(four_sphere_top.calc_potential(summed_pop_cdm,
-                     pop_rmid))[0, :] * 1e3  # from mV to uV
+
+simple_eeg_with_pop_pos = np.zeros(summed_eeg.shape)
+
+combined_pop_pos = np.zeros(3)
+for pop in dominating_pops:
+    pop_cdm = pop_sum_cdm[pop]
+    cdm_pos = pop_avrg_pos[pop]
+    combined_pop_pos += cdm_pos
+    simple_eeg_with_pop_pos += np.array(four_sphere_top.calc_potential(pop_cdm,
+                     cdm_pos))[0, :] * 1e3  # from mV to uV
+
+combined_pop_pos /= len(dominating_pops)
+pop_rmid = np.array([0, 0, radii[0] - 1000])
+print(combined_pop_pos, pop_rmid)
+simple_eeg = np.array(four_sphere_top.calc_potential(summed_pop_cdm, pop_rmid))[0, :] * 1e3  # from mV to uV
+simple_eeg2 = np.array(four_sphere_top.calc_potential(summed_pop_cdm, combined_pop_pos))[0, :] * 1e3  # from mV to uV
 
 np.save(join(sim_folder, "summed_EEG.npy"), summed_eeg)
-np.save(join(sim_folder, "simple_EEG.npy"), simple_eeg)
+np.save(join(sim_folder, "simple_EEG_single_pop.npy"), simple_eeg)
+np.save(join(sim_folder, "simple_EEG_pops_with_pos.npy"), simple_eeg_with_pop_pos)
 
-ax1.plot(summed_eeg - np.average(summed_eeg),
-         c="k", lw=2., label="Sum")
+y1 = summed_eeg - np.average(summed_eeg)
+y2 = simple_eeg - np.average(simple_eeg)
+y3 = simple_eeg2 - np.average(simple_eeg2)
+y4 = simple_eeg_with_pop_pos - np.average(simple_eeg_with_pop_pos)
 
-ax1.plot(simple_eeg - np.average(simple_eeg), ":",
-         c="gray", lw=2., label="Simple")
+t0_plot_idx = np.argmin(np.abs(tvec - 875))
+t1_plot_idx = np.argmin(np.abs(tvec - 950))
+max_sig_idx = np.argmax(np.abs(y1[t0_plot_idx:])) + t0_plot_idx
+
+error_at_max_1 = np.abs(y1[max_sig_idx] - y2[max_sig_idx]) / np.abs(y1[max_sig_idx])
+error_at_max_2 = np.abs(y1[max_sig_idx] - y3[max_sig_idx]) / np.abs(y1[max_sig_idx])
+error_at_max_3 = np.abs(y1[max_sig_idx] - y4[max_sig_idx]) / np.abs(y1[max_sig_idx])
+
+max_error_1 = np.max(np.abs(y1[t0_plot_idx:t1_plot_idx] - y2[t0_plot_idx:t1_plot_idx]) / np.max(np.abs(y1[t0_plot_idx:t1_plot_idx])))
+max_error_2 = np.max(np.abs(y1[t0_plot_idx:t1_plot_idx] - y3[t0_plot_idx:t1_plot_idx]) / np.max(np.abs(y1[t0_plot_idx:t1_plot_idx])))
+max_error_3 = np.max(np.abs(y1[t0_plot_idx:t1_plot_idx] - y4[t0_plot_idx:t1_plot_idx]) / np.max(np.abs(y1[t0_plot_idx:t1_plot_idx])))
+
+print("Single dipole: error at sig max (t={:1.3f} ms): {:1.4f}. Max relative error: {:1.4f}".format(tvec[max_sig_idx], error_at_max_1, max_error_1))
+print("Single dipole opt pos: error at sig max (t={:1.3f} ms): {:1.4f}. Max relative error: {:1.4f}".format(tvec[max_sig_idx], error_at_max_2, max_error_2))
+print("Pop dipoles: error at sig max (t={:1.3f} ms): {:1.4f}. Max relative error: {:1.4f}".format(tvec[max_sig_idx], error_at_max_3, max_error_3))
+
+
+ax1.plot(tvec, y1, c="k", lw=2., label="Sum")
+
+ax1.plot(tvec, y2, ":", c="gray", lw=2., label="Single combined dipole")
+
+ax1.plot(tvec, y4, "--", c="r", lw=1., label="Population dipoles")
+
 simplify_axes(ax1)
 fig.legend(frameon=False, ncol=3, fontsize=8)
 plt.savefig(join(sim_folder, "Figure_combined_EEG.png"))
